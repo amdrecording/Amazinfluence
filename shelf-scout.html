@@ -228,7 +228,14 @@
       </div>
 
       <hr class="divider">
-      <div class="stephead"><span class="stepnum">2</span><h2>Research</h2></div>
+      <div class="stephead"><span class="stepnum">2</span><h2>Research</h2>
+        <button type="button" class="btn-quiet small" data-action="toggle-paste" style="margin-left:auto">Autofill from pasted listing</button>
+      </div>
+      <div id="paste-block" hidden style="margin-bottom:12px">
+        <p class="muted small" style="margin:0 0 6px">On the Amazon listing: select all (Ctrl/Cmd-A or long-press → Select All), copy, paste here. Price, rank, reviews and rating are read automatically — eyeball them after.</p>
+        <textarea id="paste-ta" placeholder="paste the whole listing page text here"></textarea>
+        <div class="btn-row" style="margin-top:8px"><button type="button" class="btn" data-action="parse-paste">Read the numbers</button></div>
+      </div>
       <div class="fields">
         <div class="grid2">
           <label class="f"><span>Price $</span><input type="number" id="f-price" min="0" step="0.01" inputmode="decimal" placeholder="24.99"></label>
@@ -269,7 +276,10 @@
       </div>
       <p class="muted small" style="margin:8px 0 0" id="unlock-msg">Amazon reviews your first videos; 3 approved videos switch on onsite commissions.</p>
     </div>
-    <div class="filters" id="pipe-filters" role="group" aria-label="Filter by status"></div>
+    <div style="display:flex; align-items:center; gap:8px">
+      <div class="filters" id="pipe-filters" role="group" aria-label="Filter by status" style="flex:1"></div>
+      <button class="btn small" data-action="import-csv" style="flex:none">Import CSV</button>
+    </div>
     <div id="pipe-list"></div>
   </section>
 
@@ -337,6 +347,14 @@
     </div>
 
     <div class="card">
+      <h2>Power tools</h2>
+      <p class="small" style="margin:4px 0 6px"><b>ViralVue CSV import.</b> Discover products in ViralVue's Product Vue, hit its Export icon, then Pipeline → Import CSV here. Rows arrive pre-filled (sales, video counts) and re-scored with <em>your</em> commission rates — imported finds land as "To Buy" until the product is in your hands.</p>
+      <div class="btn-row" style="margin-bottom:12px"><button class="btn" data-action="import-csv">Import CSV</button></div>
+      <p class="small" style="margin:0 0 6px"><b>Scout-this bookmarklet.</b> One tap on any Amazon listing grabs the name, ASIN, price, rank, reviews, rating and video count, and opens Shelf Scout pre-filled. Install: copy the code, create a new bookmark in your browser, and paste it as the bookmark's URL/address.</p>
+      <div class="btn-row"><button class="btn" data-action="copy-bookmarklet">Copy bookmarklet code</button></div>
+    </div>
+
+    <div class="card">
       <h2>Backup</h2>
       <p class="muted small" style="margin:4px 0 10px">Your data lives in this page (synced when the cloud chip is green) and on this device. Keep an occasional copy anyway.</p>
       <div class="btn-row">
@@ -377,7 +395,7 @@ const CATEGORIES = [
   ["garden","Lawn & Garden",2],["auto","Automotive",2],["other","Everything else",2],
 ];
 const STATUSES = [
-  ["idea","Idea"],["filmed","Filmed"],["submitted","Submitted"],
+  ["tobuy","To Buy"],["idea","Idea"],["filmed","Filmed"],["submitted","Submitted"],
   ["live","Live"],["rejected","Rejected"],["skipped","Skipped"],
 ];
 const CAT_NOTES = {
@@ -416,11 +434,14 @@ async function boot(){
     .sort((a,b) => (b.updatedAt||0)-(a.updatedAt||0))[0];
   if (pick) state = Object.assign(defaultState(), pick);
   renderAll();
+  applyHashPrefill();
   setChip(cloud !== null ? "cloud" : "device");
   window.claude?.use?.("artifact").then(ns => {
     artifactApi = ns;
-    if (!ns) { cloudOff = true; setChip("device"); }
+    if (!ns) { cloudOff = true; setChip("device"); return; }
+    if (state.updatedAt > ((cloud && cloud.updatedAt) || 0)) cloudSave(); // device edits made outside the viewer catch up
   }).catch(()=>{ cloudOff = true; setChip("device"); });
+  if (!window.claude || !window.claude.use){ cloudOff = true; setChip("device"); }
 }
 
 function persist(){
@@ -460,7 +481,12 @@ function computeScore(p){
 
   // demand 0-35
   let demand;
-  if (p.bsr>0){
+  if (p.monthlySales>0){
+    demand = p.monthlySales>=1000?35 : p.monthlySales>=300?28 : p.monthlySales>=100?18 : p.monthlySales>=30?9 : 3;
+    reasons.push(demand>=28 ? ["good",`~${fmtN(p.monthlySales)} sales/month — strong demand.`]
+      : demand>=18 ? ["good",`~${fmtN(p.monthlySales)} sales/month — steady seller.`]
+      : ["bad",`~${fmtN(p.monthlySales)} sales/month — thin demand; few eyes on the listing.`]);
+  } else if (p.bsr>0){
     demand = p.bsr<=1000?35 : p.bsr<=10000?28 : p.bsr<=50000?18 : p.bsr<=100000?9 : 3;
     reasons.push(demand>=28 ? ["good",`Rank #${fmtN(p.bsr)} — this product moves serious volume.`]
       : demand>=18 ? ["good",`Rank #${fmtN(p.bsr)} — steady seller.`]
@@ -680,6 +706,7 @@ function openModal(id){
       <span class="score" style="font-size:34px">${p.score??"—"}<small>/100</small></span>
       <span class="pill ${vClass}">${vLabel}</span>
       ${p.perSale!=null?`<span class="mono small muted">~$${p.perSale.toFixed(2)}/sale</span>`:""}
+      ${p.viralScore!=null?`<span class="pill pill-neutral" title="ViralVue viral score">VV ${esc(p.viralScore)}</span>`:""}
       ${p.asin?`<a class="mono small" href="https://www.amazon.com/dp/${esc(p.asin)}" target="_blank" rel="noopener">${esc(p.asin)}</a>`:""}
     </div>
     <div class="fields">
@@ -697,6 +724,7 @@ function openModal(id){
       </div>
       <div class="grid3">
         ${field("rating","Stars","number",p.rating,'min="1" max="5" step="0.1" inputmode="decimal"')}
+        ${field("monthlySales","Sales/mo","number",p.monthlySales,'min="0" inputmode="numeric"')}
         ${field("videos","Videos","number",p.videos,'min="0" inputmode="numeric"')}
         <label class="f"><span>Their quality</span><select id="m-vidq">
           <option value="none" ${p.vidQuality==="none"?"selected":""}>None</option>
@@ -722,7 +750,8 @@ function saveModal(){
   const num = id => { const v = $(id).value.trim(); return v===""?null:Number(v); };
   p.status = $("m-status").value; p.category = $("m-category").value;
   p.price = num("m-price"); p.bsr = num("m-bsr"); p.reviews = num("m-reviews");
-  p.rating = num("m-rating"); p.videos = num("m-videos"); p.vidQuality = $("m-vidq").value;
+  p.rating = num("m-rating"); p.monthlySales = num("m-monthlySales");
+  p.videos = num("m-videos"); p.vidQuality = $("m-vidq").value;
   p.observations = $("m-obs").value.trim(); p.notes = $("m-notes").value.trim();
   p.rejectReason = $("m-rejectReason") ? $("m-rejectReason").value.trim() : p.rejectReason;
   Object.assign(p, computeScore(p));
@@ -787,6 +816,166 @@ function doImport(){
   } catch { toast("That doesn't look like a Shelf Scout backup"); }
 }
 
+/* ---------- paste-the-listing autofill ---------- */
+function parseListing(t){
+  const out = {}; let m;
+  if ((m = t.match(/Best Sellers Rank[^#]*#([\d,]+)/i))) out.bsr = Number(m[1].replace(/,/g,""));
+  if ((m = t.match(/([\d,]+)\s+(?:global\s+)?ratings/i))) out.reviews = Number(m[1].replace(/,/g,""));
+  if ((m = t.match(/(\d(?:\.\d)?) out of 5/))) out.rating = Number(m[1]);
+  if ((m = t.match(/(\d+)\s+videos/i))) out.videos = Number(m[1]);
+  if ((m = t.match(/\$\s?([\d,]+\.\d{2})/))) out.price = Number(m[1].replace(/,/g,""));
+  return out;
+}
+function applyParsedListing(){
+  const d = parseListing($("paste-ta").value);
+  const map = [["price","f-price","price"],["bsr","f-bsr","rank"],["reviews","f-reviews","reviews"],["rating","f-rating","rating"],["videos","f-videos","videos"]];
+  const found = [];
+  for (const [k,fid,label] of map) if (d[k]!=null){ $(fid).value = d[k]; found.push(label); }
+  if (d.videos===0) $("f-vidq").value = "none";
+  toast(found.length ? "Found: "+found.join(", ")+" — eyeball them" : "Couldn't read numbers from that — paste the full page text");
+}
+
+/* ---------- CSV import (ViralVue or any product export) ---------- */
+const IMPORT_FIELDS = [
+  ["name","Product name", /title|product\s*name|^name$|^product$/i],
+  ["asin","ASIN", /asin/i],
+  ["price","Price $", /price/i],
+  ["monthlySales","Monthly sales", /monthly\s*sales|sales.*month|est.*sales|units\s*sold/i],
+  ["videos","Video count", /video/i],
+  ["reviews","Review count", /review\s*count|reviews|ratings\s*count|#\s*ratings|num.*review/i],
+  ["rating","Star rating", /^rating$|^stars?$|star\s*rating|avg.*rating|average\s*rating/i],
+  ["viralScore","Viral score", /viral|score/i],
+  ["category","Category", /category|niche|department/i],
+];
+let importStage = null;
+function parseCSV(text){
+  const rows = []; let row = [], cur = "", q = false;
+  for (let i=0;i<text.length;i++){
+    const c = text[i];
+    if (q){ if (c==='"'){ if (text[i+1]==='"'){ cur+='"'; i++; } else q = false; } else cur += c; }
+    else if (c==='"') q = true;
+    else if (c===','){ row.push(cur); cur = ""; }
+    else if (c==='\n' || c==='\r'){ if (c==='\r' && text[i+1]==='\n') i++; row.push(cur); cur = ""; if (row.some(x=>x.trim()!=="")) rows.push(row); row = []; }
+    else cur += c;
+  }
+  row.push(cur); if (row.some(x=>x.trim()!=="")) rows.push(row);
+  return rows;
+}
+function guessCat(s){
+  s = (s||"").toLowerCase();
+  const rules = [["kitchen","kitchen"],["beauty|cosmetic|makeup","beauty"],["health|personal care|supplement|vitamin","health"],
+    ["electronic|tech|computer|audio|headphone|camera","electronics"],["toy|game","toys"],["apparel|cloth|fashion|shoe|jewelr","apparel"],
+    ["sport|outdoor|fitness|exercise","sports"],["pet","pets"],["grocery|food|beverage|snack","grocery"],
+    ["tool|improvement|hardware","tools"],["baby","baby"],["office","office"],["garden|lawn|patio","garden"],
+    ["auto|car\\b","auto"],["home|decor|furniture|bedding","home"]];
+  for (const [re,id] of rules) if (new RegExp(re).test(s)) return id;
+  return "other";
+}
+function openImportModal(){
+  importStage = null;
+  $("modal-sheet").innerHTML = `
+    <div class="sheet-head"><h2>Import CSV</h2>
+      <button class="xbtn" data-action="close-modal" aria-label="Close">✕</button></div>
+    <p class="muted small" style="margin:0 0 10px">Works with ViralVue's Product Vue export (Export icon → CSV) or any product spreadsheet with a header row. Pick the file, or paste the CSV text.</p>
+    <input type="file" id="import-file" accept=".csv,text/csv" style="margin-bottom:8px">
+    <textarea id="import-csv-ta" class="mono small" style="min-height:90px" placeholder="…or paste CSV text here"></textarea>
+    <div class="btn-row" style="margin-top:10px"><button class="btn btn-primary" data-action="stage-csv">Read the file</button></div>
+    <div id="import-map" style="margin-top:12px"></div>`;
+  $("modal").hidden = false; document.body.style.overflow = "hidden";
+  $("import-file").addEventListener("change", e => {
+    const f = e.target.files[0];
+    if (f) f.text().then(t => { $("import-csv-ta").value = t; stageCSV(); });
+  });
+}
+function stageCSV(){
+  const rows = parseCSV($("import-csv-ta").value.trim());
+  if (rows.length < 2){ toast("Need a header row plus at least one product"); return; }
+  const headers = rows[0].map(h=>h.trim());
+  importStage = { headers, rows: rows.slice(1) };
+  const opts = sel => `<option value="">—</option>` + headers.map((h,i)=>`<option value="${i}" ${sel===i?"selected":""}>${esc(h)}</option>`).join("");
+  const guess = re => { const i = headers.findIndex(h=>re.test(h)); return i<0?null:i; };
+  $("import-map").innerHTML = `
+    <p class="small" style="margin:0 0 8px"><b>${importStage.rows.length} products found.</b> Check the column matching:</p>
+    <div class="grid2">${IMPORT_FIELDS.map(([id,label,re])=>
+      `<label class="f"><span>${label}</span><select data-mapfield="${id}">${opts(guess(re))}</select></label>`).join("")}
+    </div>
+    <label class="f" style="margin-top:10px"><span>Import as</span>
+      <select id="import-status"><option value="tobuy">To Buy (don't own it yet)</option><option value="idea">Idea (already own it)</option></select></label>
+    <div class="btn-row" style="margin-top:12px"><button class="btn btn-primary" data-action="do-csv-import">Import ${importStage.rows.length} products</button></div>`;
+}
+function doCSVImport(){
+  if (!importStage) return;
+  const col = {};
+  document.querySelectorAll("[data-mapfield]").forEach(s => { if (s.value!=="") col[s.dataset.mapfield] = Number(s.value); });
+  if (col.name==null){ toast("Match the Product name column first"); return; }
+  const status = $("import-status").value;
+  const numAt = (row,i) => { if (i==null) return null; const v = String(row[i]??"").replace(/[$,%\s,]/g,""); return v===""||isNaN(Number(v))?null:Number(v); };
+  const existing = new Set(state.products.map(p=>p.asin).filter(Boolean));
+  let added = 0, dup = 0;
+  for (const row of importStage.rows){
+    const name = String(row[col.name]??"").trim();
+    if (!name) continue;
+    const asin = col.asin!=null ? (String(row[col.asin]??"").trim().match(/[A-Z0-9]{10}/)||[""])[0] : "";
+    if (asin && existing.has(asin)){ dup++; continue; }
+    const videos = numAt(row,col.videos);
+    const p = {
+      id: crypto.randomUUID?.() || String(Date.now()+Math.random()),
+      name, brand:"", asin,
+      category: col.category!=null ? guessCat(row[col.category]) : "other",
+      price: numAt(row,col.price), bsr: null, reviews: numAt(row,col.reviews),
+      rating: numAt(row,col.rating), monthlySales: numAt(row,col.monthlySales),
+      viralScore: numAt(row,col.viralScore),
+      videos, vidQuality: videos===0 ? "none" : "weak",
+      observations:"", notes:"", rejectReason:"", status,
+      createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    Object.assign(p, computeScore(p));
+    state.products.push(p);
+    if (asin) existing.add(asin);
+    added++;
+  }
+  persist(); renderPipeline(); closeModal();
+  toast(`Imported ${added}${dup?` · skipped ${dup} duplicates`:""}`);
+  switchTab("pipeline");
+}
+
+/* ---------- bookmarklet ---------- */
+function bookmarkletCode(){
+  const app = location.origin + location.pathname;
+  const src = `(function(){try{
+var g=function(s){var e=document.querySelector(s);return e?e.textContent.trim():""};
+var d={};var mm=location.pathname.match(/\\/dp\\/([A-Z0-9]{10})/);d.asin=mm?mm[1]:"";
+d.name=g("#productTitle");
+var pr=g("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen")||g(".a-price .a-offscreen");
+if(pr){var pm=pr.match(/[\\d,.]+/);if(pm)d.price=parseFloat(pm[0].replace(/,/g,""))}
+var ra=document.querySelector("#acrPopover");if(ra&&ra.title){var rm=ra.title.match(/[\\d.]+/);if(rm)d.rating=parseFloat(rm[0])}
+var rc=g("#acrCustomerReviewText");if(rc){var cm=rc.match(/[\\d,]+/);if(cm)d.reviews=parseInt(cm[0].replace(/,/g,""),10)}
+var bx=document.getElementById("detailBulletsWrapper_feature_div")||document.getElementById("productDetails_detailBullets_sections1")||document.getElementById("prodDetails");
+var bt=(bx||document.body).innerText;
+var bm=bt.match(/Best Sellers Rank[^#]*#([\\d,]+)/);if(bm)d.bsr=parseInt(bm[1].replace(/,/g,""),10);
+var vids=document.querySelectorAll("[id*='vse-related-videos'] li, .vse-video-card, [data-csa-c-content-id*='vse'] li");
+if(vids.length)d.videos=vids.length;
+if(d.videos==null){var vt=document.body.innerText.match(/(\\d+)\\s+videos/i);if(vt)d.videos=parseInt(vt[1],10)}
+window.open(${JSON.stringify(app)}+"#scout="+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(d))))),"_blank");
+}catch(e){alert("Shelf Scout: could not read this page — "+e.message)}})()`;
+  return "javascript:" + encodeURIComponent(src.replace(/\n/g,""));
+}
+function applyHashPrefill(){
+  const m = location.hash.match(/#scout=(.+)/);
+  if (!m) return;
+  try {
+    const d = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1])))));
+    if (d.name) $("f-name").value = d.name;
+    if (d.asin){ $("f-asin").value = d.asin; $("open-listing-btn").hidden = false; }
+    for (const [k,fid] of [["price","f-price"],["bsr","f-bsr"],["reviews","f-reviews"],["rating","f-rating"],["videos","f-videos"]])
+      if (d[k]!=null) $(fid).value = d[k];
+    if (d.videos===0) $("f-vidq").value = "none";
+    history.replaceState(null, "", location.pathname + location.search);
+    switchTab("scout");
+    toast("Prefilled from the bookmarklet — eyeball the numbers");
+  } catch {}
+}
+
 function switchTab(name){
   for (const v of ["scout","pipeline","playbook"]) $("view-"+v).hidden = v!==name;
   document.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", String(t.dataset.tabgo===name)));
@@ -833,6 +1022,15 @@ document.addEventListener("click", e => {
     case "export": exportBackup(); break;
     case "import": importBackup(); break;
     case "do-import": doImport(); break;
+    case "toggle-paste": {
+      const b = $("paste-block"); b.hidden = !b.hidden;
+      if (!b.hidden) $("paste-ta").focus();
+      break; }
+    case "parse-paste": applyParsedListing(); break;
+    case "import-csv": openImportModal(); break;
+    case "stage-csv": stageCSV(); break;
+    case "do-csv-import": doCSVImport(); break;
+    case "copy-bookmarklet": copyText(bookmarkletCode(), "Bookmarklet code"); break;
   }
 });
 $("modal").addEventListener("click", e => { if (e.target === $("modal")) closeModal(); });

@@ -350,7 +350,7 @@
       <h2>Power tools</h2>
       <p class="small" style="margin:4px 0 6px"><b>ViralVue CSV import.</b> Discover products in ViralVue's Product Vue, hit its Export icon, then Pipeline → Import CSV here. Rows arrive pre-filled (sales, video counts) and re-scored with <em>your</em> commission rates — imported finds land as "To Buy" until the product is in your hands.</p>
       <div class="btn-row" style="margin-bottom:12px"><button class="btn" data-action="import-csv">Import CSV</button></div>
-      <p class="small" style="margin:0 0 6px"><b>iPhone: "Scout This" in your Share button.</b> One-time setup, then any Amazon listing in Safari captures with one tap — name, ASIN, price, rank, reviews, rating, video count, no typing. Setup: ① copy the script below; ② open the Shortcuts app → + → add the action <em>Run JavaScript on Web Page</em> and paste the script over its sample code (allow scripts if asked); ③ add the action <em>Open URLs</em> after it; ④ in the shortcut's settings (ⓘ) turn on <em>Show in Share Sheet</em> and name it "Scout This"; ⑤ on a listing in Safari: Share → Scout This. From the Amazon app, open the listing in Safari first (Share → Open in Safari, or paste the link).</p>
+      <p class="small" style="margin:0 0 6px"><b>iPhone: "Scout This" in your Share button.</b> One-time setup, then any Amazon listing in Safari captures with one tap — name, ASIN, price, rank, reviews, rating, video count, no typing. Setup (one action only): ① copy the script below; ② Shortcuts app → + → add the single action <em>Run JavaScript on Web Page</em> and paste the script over its sample code (allow scripts if asked) — its "on" token should say <em>Shortcut Input</em> / Web Page; ③ in the shortcut's settings (ⓘ) turn on <em>Show in Share Sheet</em> and name it "Scout This". No other actions — if you added <em>Open URLs</em> earlier, delete it. Use: on a listing in Safari, Share → Scout This — the tab becomes Shelf Scout, pre-filled. The ▶ test button inside the editor always fails (no page attached); test from Safari's Share menu. From the Amazon app, open the listing in Safari first.</p>
       <div class="btn-row" style="margin-bottom:12px"><button class="btn" data-action="copy-shortcut">Copy iPhone Shortcut script</button></div>
       <p class="small" style="margin:0 0 6px"><b>Computer: scout-this bookmarklet.</b> Same one-tap capture for a desktop browser. Install: copy the code, create a new bookmark, and paste the code as the bookmark's URL/address.</p>
       <div class="btn-row"><button class="btn" data-action="copy-bookmarklet">Copy bookmarklet code</button></div>
@@ -997,11 +997,11 @@ function bookmarkletCode(){
     `(function(){try{${captureJS()}window.open(u,"_blank");}catch(e){alert("Shelf Scout: could not read this page — "+e.message)}})()`.replace(/\n/g,""));
 }
 function shortcutCode(){
-  const app = location.origin + location.pathname;
   return `try{
 ${captureJS()}
-completion(u);
-}catch(e){completion(${JSON.stringify(app)});}`;
+location.href=u;
+completion();
+}catch(e){completion();}`;
 }
 function applyHashPrefill(){
   const m = location.hash.match(/#scout=(.+)/);

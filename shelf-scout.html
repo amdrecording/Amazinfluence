@@ -417,7 +417,33 @@ Please:
 function defaultState(){
   const rates = {};
   for (const [id,,r] of CATEGORIES) rates[id] = r;
-  return { v:1, updatedAt:Date.now(), products:[], rates };
+  return { v:1, updatedAt:Date.now(), products:[], rates, ratesUpdatedAt:0, deleted:{} };
+}
+/* Two-writer safety: union of products (per-product newest edit wins), deletion
+   tombstones so a delete on one device can't resurrect from another, newer
+   whole rate-table wins. */
+function mergeStates(a, b){
+  if (!a) return b; if (!b) return a;
+  const out = defaultState();
+  out.deleted = {};
+  for (const s of [a,b]) for (const id in (s.deleted||{}))
+    out.deleted[id] = Math.max(out.deleted[id]||0, s.deleted[id]);
+  const byId = new Map();
+  for (const p of (a.products||[])) byId.set(p.id, p);
+  for (const p of (b.products||[])){
+    const q = byId.get(p.id);
+    if (!q || (p.updatedAt||0) > (q.updatedAt||0)) byId.set(p.id, p);
+  }
+  out.products = [...byId.values()]
+    .filter(p => !(out.deleted[p.id] >= (p.updatedAt||0)))
+    .sort((x,y) => (x.createdAt||0)-(y.createdAt||0));
+  const cutoff = Date.now() - 90*24*3600e3;
+  for (const id in out.deleted) if (out.deleted[id] < cutoff) delete out.deleted[id];
+  const [newer, older] = (a.ratesUpdatedAt||0) >= (b.ratesUpdatedAt||0) ? [a,b] : [b,a];
+  out.rates = Object.assign({}, out.rates, older.rates||{}, newer.rates||{});
+  out.ratesUpdatedAt = Math.max(a.ratesUpdatedAt||0, b.ratesUpdatedAt||0);
+  out.updatedAt = Math.max(a.updatedAt||0, b.updatedAt||0);
+  return out;
 }
 let state = defaultState();
 let cloudOff = false, artifactApi = null, saveTimer = null, pipeFilter = "all";
@@ -430,16 +456,20 @@ async function boot(){
     const r = await fetch("data/state.json", {cache:"no-store"});
     if (r.ok) cloud = await r.json();
   } catch {}
-  const pick = [local, cloud].filter(s => s && s.v === 1)
-    .sort((a,b) => (b.updatedAt||0)-(a.updatedAt||0))[0];
-  if (pick) state = Object.assign(defaultState(), pick);
+  if (local && local.v !== 1) local = null;
+  if (cloud && cloud.v !== 1) cloud = null;
+  const merged = mergeStates(local, cloud);
+  if (merged) state = Object.assign(defaultState(), merged);
   renderAll();
   applyHashPrefill();
   setChip(cloud !== null ? "cloud" : "device");
+  const needsPush = !!merged && (!cloud ||
+    JSON.stringify(state.products) !== JSON.stringify(cloud.products||[]) ||
+    JSON.stringify(state.rates) !== JSON.stringify(cloud.rates||{}));
   window.claude?.use?.("artifact").then(ns => {
     artifactApi = ns;
     if (!ns) { cloudOff = true; setChip("device"); return; }
-    if (state.updatedAt > ((cloud && cloud.updatedAt) || 0)) cloudSave(); // device edits made outside the viewer catch up
+    if (needsPush) cloudSave(); // merged-in device edits catch up to the shared copy
   }).catch(()=>{ cloudOff = true; setChip("device"); });
   if (!window.claude || !window.claude.use){ cloudOff = true; setChip("device"); }
 }
@@ -1016,6 +1046,7 @@ document.addEventListener("click", e => {
     case "copy-claude": if (p) copyText(claudePrompt(p), "Claude prompt"); break;
     case "delete-product": {
       if (!p) break;
+      state.deleted[p.id] = Date.now();
       state.products = state.products.filter(x=>x.id!==p.id);
       persist(); renderPipeline(); closeModal(); toast("Deleted");
       break; }
@@ -1039,7 +1070,7 @@ $("scout-form").addEventListener("submit", e => { e.preventDefault(); scoreForm(
 $("f-asin").addEventListener("input", () => { $("open-listing-btn").hidden = !readForm().asin; });
 document.addEventListener("input", e => {
   const r = e.target.dataset && e.target.dataset.rate;
-  if (r){ const v = Number(e.target.value); if (v>=0 && v<=30){ state.rates[r]=v; persist(); } }
+  if (r){ const v = Number(e.target.value); if (v>=0 && v<=30){ state.rates[r]=v; state.ratesUpdatedAt=Date.now(); persist(); } }
 });
 
 boot();

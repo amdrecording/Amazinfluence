@@ -358,7 +358,9 @@
       <h2>Power tools</h2>
       <p class="small" style="margin:4px 0 6px"><b>ViralVue CSV import.</b> Discover products in ViralVue's Product Vue, hit its Export icon, then Pipeline → Import CSV here. Rows arrive pre-filled (sales, video counts) and re-scored with <em>your</em> commission rates — imported finds land as "To Buy" until the product is in your hands.</p>
       <div class="btn-row" style="margin-bottom:12px"><button class="btn" data-action="import-csv">Import CSV</button></div>
-      <p class="small" style="margin:0 0 6px"><b>Scout-this bookmarklet.</b> One tap on any Amazon listing grabs the name, ASIN, price, rank, reviews, rating and video count, and opens Shelf Scout pre-filled. Install: copy the code, create a new bookmark in your browser, and paste it as the bookmark's URL/address.</p>
+      <p class="small" style="margin:0 0 6px"><b>iPhone: "Scout This" in your Share button.</b> One-time setup, then any Amazon listing in Safari captures with one tap — name, ASIN, price, rank, reviews, rating, video count, no typing. Setup: ① copy the script below; ② open the Shortcuts app → + → add the action <em>Run JavaScript on Web Page</em> and paste the script over its sample code (allow scripts if asked); ③ add the action <em>Open URLs</em> after it; ④ in the shortcut's settings (ⓘ) turn on <em>Show in Share Sheet</em> and name it "Scout This"; ⑤ on a listing in Safari: Share → Scout This. From the Amazon app, open the listing in Safari first (Share → Open in Safari, or paste the link).</p>
+      <div class="btn-row" style="margin-bottom:12px"><button class="btn" data-action="copy-shortcut">Copy iPhone Shortcut script</button></div>
+      <p class="small" style="margin:0 0 6px"><b>Computer: scout-this bookmarklet.</b> Same one-tap capture for a desktop browser. Install: copy the code, create a new bookmark, and paste the code as the bookmark's URL/address.</p>
       <div class="btn-row"><button class="btn" data-action="copy-bookmarklet">Copy bookmarklet code</button></div>
     </div>
 
@@ -978,26 +980,36 @@ function doCSVImport(){
   switchTab("pipeline");
 }
 
-/* ---------- bookmarklet ---------- */
-function bookmarkletCode(){
+/* ---------- one-tap capture: desktop bookmarklet + iPhone Shortcut ---------- */
+function captureJS(){
   const app = location.origin + location.pathname;
-  const src = `(function(){try{
-var g=function(s){var e=document.querySelector(s);return e?e.textContent.trim():""};
+  return `var g=function(s){var e=document.querySelector(s);return e?e.textContent.trim():""};
 var d={};var mm=location.pathname.match(/\\/dp\\/([A-Z0-9]{10})/);d.asin=mm?mm[1]:"";
-d.name=g("#productTitle");
-var pr=g("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen")||g(".a-price .a-offscreen");
+d.name=g("#productTitle")||g("#title");
+var pr=g("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen")||g("#corePriceDisplay_mobile_feature_div .a-price .a-offscreen")||g(".a-price .a-offscreen");
 if(pr){var pm=pr.match(/[\\d,.]+/);if(pm)d.price=parseFloat(pm[0].replace(/,/g,""))}
 var ra=document.querySelector("#acrPopover");if(ra&&ra.title){var rm=ra.title.match(/[\\d.]+/);if(rm)d.rating=parseFloat(rm[0])}
+if(d.rating==null){var rt=document.body.innerText.match(/(\\d(?:\\.\\d)?) out of 5/);if(rt)d.rating=parseFloat(rt[1])}
 var rc=g("#acrCustomerReviewText");if(rc){var cm=rc.match(/[\\d,]+/);if(cm)d.reviews=parseInt(cm[0].replace(/,/g,""),10)}
+if(d.reviews==null){var rv=document.body.innerText.match(/([\\d,]+)\\s+(?:global\\s+)?ratings/i);if(rv)d.reviews=parseInt(rv[1].replace(/,/g,""),10)}
 var bx=document.getElementById("detailBulletsWrapper_feature_div")||document.getElementById("productDetails_detailBullets_sections1")||document.getElementById("prodDetails");
 var bt=(bx||document.body).innerText;
 var bm=bt.match(/Best Sellers Rank[^#]*#([\\d,]+)/);if(bm)d.bsr=parseInt(bm[1].replace(/,/g,""),10);
 var vids=document.querySelectorAll("[id*='vse-related-videos'] li, .vse-video-card, [data-csa-c-content-id*='vse'] li");
 if(vids.length)d.videos=vids.length;
 if(d.videos==null){var vt=document.body.innerText.match(/(\\d+)\\s+videos/i);if(vt)d.videos=parseInt(vt[1],10)}
-window.open(${JSON.stringify(app)}+"#scout="+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(d))))),"_blank");
-}catch(e){alert("Shelf Scout: could not read this page — "+e.message)}})()`;
-  return "javascript:" + encodeURIComponent(src.replace(/\n/g,""));
+var u=${JSON.stringify(app)}+"#scout="+encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(d)))));`;
+}
+function bookmarkletCode(){
+  return "javascript:" + encodeURIComponent(
+    `(function(){try{${captureJS()}window.open(u,"_blank");}catch(e){alert("Shelf Scout: could not read this page — "+e.message)}})()`.replace(/\n/g,""));
+}
+function shortcutCode(){
+  const app = location.origin + location.pathname;
+  return `try{
+${captureJS()}
+completion(u);
+}catch(e){completion(${JSON.stringify(app)});}`;
 }
 function applyHashPrefill(){
   const m = location.hash.match(/#scout=(.+)/);
@@ -1072,6 +1084,7 @@ document.addEventListener("click", e => {
     case "stage-csv": stageCSV(); break;
     case "do-csv-import": doCSVImport(); break;
     case "copy-bookmarklet": copyText(bookmarkletCode(), "Bookmarklet code"); break;
+    case "copy-shortcut": copyText(shortcutCode(), "Shortcut script"); break;
   }
 });
 $("modal").addEventListener("click", e => { if (e.target === $("modal")) closeModal(); });

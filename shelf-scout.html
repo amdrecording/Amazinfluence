@@ -683,6 +683,7 @@ function readForm(){
   return {
     name: $("f-name").value.trim(), brand: $("f-brand").value.trim(),
     category: $("f-category").value, asin: m?m[1]:(/^[A-Z0-9]{10}$/.test(asinRaw)?asinRaw:""),
+    url: /^https?:\/\//i.test(asinRaw) ? asinRaw : "",
     price: num("f-price"), bsr: num("f-bsr"), reviews: num("f-reviews"),
     rating: num("f-rating"), videos: num("f-videos"), vidQuality: $("f-vidq").value,
     observations: $("f-obs").value.trim(),
@@ -737,7 +738,7 @@ function openModal(id){
       <span class="pill ${vClass}">${vLabel}</span>
       ${p.perSale!=null?`<span class="mono small muted">~$${p.perSale.toFixed(2)}/sale</span>`:""}
       ${p.viralScore!=null?`<span class="pill pill-neutral" title="ViralVue viral score">VV ${esc(p.viralScore)}</span>`:""}
-      ${p.asin?`<a class="mono small" href="https://www.amazon.com/dp/${esc(p.asin)}" target="_blank" rel="noopener">${esc(p.asin)}</a>`:""}
+      ${(p.asin||p.url)?`<a class="mono small" href="${esc(p.asin?"https://www.amazon.com/dp/"+p.asin:p.url)}" target="_blank" rel="noopener">${esc(p.asin||"listing ↗")}</a>`:""}
     </div>
     <div class="fields">
       <div class="grid2">
@@ -1032,7 +1033,8 @@ document.addEventListener("click", e => {
       break; }
     case "open-listing": {
       const f = readForm();
-      if (f.asin) window.open("https://www.amazon.com/dp/"+f.asin, "_blank", "noopener");
+      const u = f.asin ? "https://www.amazon.com/dp/"+f.asin : f.url;
+      if (u) window.open(u, "_blank", "noopener");
       break; }
     case "add-pipeline": commitPending("idea"); break;
     case "add-skipped": commitPending("skipped"); break;
@@ -1067,7 +1069,7 @@ document.addEventListener("click", e => {
 $("modal").addEventListener("click", e => { if (e.target === $("modal")) closeModal(); });
 document.addEventListener("keydown", e => { if (e.key==="Escape" && !$("modal").hidden) closeModal(); });
 $("scout-form").addEventListener("submit", e => { e.preventDefault(); scoreForm(); });
-$("f-asin").addEventListener("input", () => { $("open-listing-btn").hidden = !readForm().asin; });
+$("f-asin").addEventListener("input", () => { const f = readForm(); $("open-listing-btn").hidden = !(f.asin || f.url); });
 document.addEventListener("input", e => {
   const r = e.target.dataset && e.target.dataset.rate;
   if (r){ const v = Number(e.target.value); if (v>=0 && v<=30){ state.rates[r]=v; state.ratesUpdatedAt=Date.now(); persist(); } }

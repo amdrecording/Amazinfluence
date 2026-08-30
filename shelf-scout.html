@@ -982,6 +982,7 @@ var pr=g("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen")||g("#cor
 if(pr){var pm=pr.match(/[\\d,.]+/);if(pm)d.price=parseFloat(pm[0].replace(/,/g,""))}
 var ra=document.querySelector("#acrPopover");if(ra&&ra.title){var rm=ra.title.match(/[\\d.]+/);if(rm)d.rating=parseFloat(rm[0])}
 if(d.rating==null){var rt=document.body.innerText.match(/(\\d(?:\\.\\d)?) out of 5/);if(rt)d.rating=parseFloat(rt[1])}
+if(d.rating==null){var ae=document.querySelector("[aria-label*='out of 5']");if(ae){var am=ae.getAttribute("aria-label").match(/[\\d.]+/);if(am)d.rating=parseFloat(am[0])}}
 var rc=g("#acrCustomerReviewText");if(rc){var cm=rc.match(/[\\d,]+/);if(cm)d.reviews=parseInt(cm[0].replace(/,/g,""),10)}
 if(d.reviews==null){var rv=document.body.innerText.match(/([\\d,]+)\\s+(?:global\\s+)?ratings/i);if(rv)d.reviews=parseInt(rv[1].replace(/,/g,""),10)}
 var bx=document.getElementById("detailBulletsWrapper_feature_div")||document.getElementById("productDetails_detailBullets_sections1")||document.getElementById("prodDetails");
@@ -1015,8 +1016,9 @@ function applyHashPrefill(){
     if (d.videos===0) $("f-vidq").value = "none";
     history.replaceState(null, "", location.pathname + location.search);
     switchTab("scout");
-    toast("Prefilled from the bookmarklet — eyeball the numbers");
-  } catch {}
+    toast(d.name || d.asin ? "Prefilled — eyeball the numbers"
+      : "Capture ran but found nothing — was that an Amazon listing open in Safari?");
+  } catch { toast("Capture arrived garbled — re-copy the script from Playbook"); }
 }
 
 function switchTab(name){
